@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { uploadImageSchema } from '@/lib/validations'
 import { ERROR_CODES, ERROR_MESSAGES, DEV_CONFIG } from '@/lib/constants'
 import { generateRequestId } from '@/lib/utils'
-import { base64ToBlob } from '@/lib/utils/image'
+import { uploadImageToS3 } from '@/lib/aws/s3'
+import { analyzeImageWithRekognition, analyzeImageFromBase64 } from '@/lib/aws/rekognition'
 
 // モック用の画像解析結果
 const MOCK_ANALYSIS_RESULTS = [
@@ -73,10 +74,10 @@ export async function POST(request: NextRequest) {
     // 本番環境での実装
     try {
       // 1. 画像をS3にアップロード
-      const imageUrl = await uploadToS3(image, filename, requestId)
+      const { imageUrl, key } = await uploadImageToS3(image, filename || 'unknown.jpg')
       
       // 2. Amazon Rekognitionで画像解析
-      const analysisResult = await analyzeImageWithRekognition(imageUrl, requestId)
+      const analysisResult = await analyzeImageWithRekognition(key)
       
       // 3. 結果を返す
       return NextResponse.json({
@@ -141,27 +142,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// S3アップロード関数（スタブ）
-async function uploadToS3(base64Data: string, filename: string, requestId: string): Promise<string> {
-  // TODO: AWS S3へのアップロード実装
-  console.log(`[${requestId}] Uploading ${filename} to S3...`)
-  
-  // 暫定的にBase64データを返す
-  return base64Data
-}
-
-// Amazon Rekognition解析関数（スタブ）
-async function analyzeImageWithRekognition(imageUrl: string, requestId: string) {
-  // TODO: Amazon Rekognition API呼び出し実装
-  console.log(`[${requestId}] Analyzing image with Rekognition...`)
-  
-  // 暫定的にモックデータを返す
-  return {
-    ingredients: MOCK_ANALYSIS_RESULTS,
-    confidence: 0.88,
-    processingTime: 2.1
-  }
-}
 
 export async function GET() {
   return NextResponse.json(

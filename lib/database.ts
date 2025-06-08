@@ -250,7 +250,7 @@ export async function getPopularRecipes(limit: number = 10) {
   });
 
   // 人気度でソート（お気に入り数 + 調理回数）
-  return recipes.sort((a, b) => {
+  return recipes.sort((a: any, b: any) => {
     const aScore = a._count.favoriteBy + a._count.cookingHistory;
     const bScore = b._count.favoriteBy + b._count.cookingHistory;
     return bScore - aScore;

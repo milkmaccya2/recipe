@@ -4,7 +4,7 @@
  */
 
 import { atom } from 'jotai';
-import { DetectedIngredient } from '@/lib/aws-rekognition';
+import { DetectedIngredient } from '@/lib/aws/rekognition';
 
 // 識別された食材
 export const detectedIngredientsAtom = atom<DetectedIngredient[]>([]);
@@ -17,8 +17,9 @@ export const confirmedIngredientsAtom = atom<string[]>((get) => {
   const detected = get(detectedIngredientsAtom);
   const manual = get(manualIngredientsAtom);
   
-  const detectedNames = detected.map(d => d.japaneseName || d.name);
-  return [...new Set([...detectedNames, ...manual])];
+  const detectedNames = detected.map(d => d.name);
+  const allIngredients = detectedNames.concat(manual);
+  return Array.from(new Set(allIngredients));
 });
 
 // 調味料チェックリスト
