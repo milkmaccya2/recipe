@@ -441,6 +441,9 @@ jobs:
     needs: [setup, analyze-requirements, generate-issues, parallel-implementation, automated-review]
     if: always()
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
       - name: Workflow summary
         run: |
           echo "📊 AI駆動開発ワークフロー完了レポート"
