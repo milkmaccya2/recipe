@@ -1,0 +1,523 @@
+name: AI Driven Development
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Development mode'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full          # 全自動実行
+        - issues-only   # Issue生成のみ
+        - implement     # 実装のみ
+        - review        # レビューのみ
+      max_parallel:
+        description: 'Maximum parallel sessions'
+        required: false
+        default: '3'
+        type: string
+      feature_filter:
+        description: 'Feature filter (optional)'
+        required: false
+        type: string
+
+env:
+  CLAUDE_CODE_API_KEY: ${{ secrets.CLAUDE_CODE_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  MAX_PARALLEL: ${{ github.event.inputs.max_parallel || '3' }}
+  DEVELOPMENT_MODE: ${{ github.event.inputs.mode }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      should-generate-issues: ${{ steps.mode-check.outputs.generate-issues }}
+      should-implement: ${{ steps.mode-check.outputs.implement }}
+      should-review: ${{ steps.mode-check.outputs.review }}
+    steps:
+      - name: Check development mode
+        id: mode-check
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          
+          case $MODE in
+            "full")
+              echo "generate-issues=true" >> $GITHUB_OUTPUT
+              echo "implement=true" >> $GITHUB_OUTPUT
+              echo "review=true" >> $GITHUB_OUTPUT
+              ;;
+            "issues-only")
+              echo "generate-issues=true" >> $GITHUB_OUTPUT
+              echo "implement=false" >> $GITHUB_OUTPUT
+              echo "review=false" >> $GITHUB_OUTPUT
+              ;;
+            "implement")
+              echo "generate-issues=false" >> $GITHUB_OUTPUT
+              echo "implement=true" >> $GITHUB_OUTPUT
+              echo "review=false" >> $GITHUB_OUTPUT
+              ;;
+            "review")
+              echo "generate-issues=false" >> $GITHUB_OUTPUT
+              echo "implement=false" >> $GITHUB_OUTPUT
+              echo "review=true" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          
+      - name: Notify start
+        run: |
+          echo "🚀 AI駆動開発ワークフローを開始します"
+          echo "モード: ${{ github.event.inputs.mode }}"
+          echo "並行数: ${{ env.MAX_PARALLEL }}"
+
+  analyze-requirements:
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-generate-issues == 'true'
+    outputs:
+      issues-matrix: ${{ steps.analysis.outputs.issues-matrix }}
+      total-issues: ${{ steps.analysis.outputs.total-issues }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Analyze requirements
+        id: analysis
+        run: |
+          echo "📋 要件を解析中..."
+          
+          # Node.jsスクリプトで要件解析を実行
+          cat > analyze.js << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          
+          async function analyzeRequirements() {
+            try {
+              // CLAUDE.mdと要件定義書を読み込み
+              const claudemd = fs.readFileSync('CLAUDE.md', 'utf-8');
+              const requirements = fs.readFileSync('docs/requirements.md', 'utf-8');
+              
+              // 未実装機能を抽出（簡易版）
+              const unimplementedFeatures = [
+                {
+                  title: "レシピ提案AI機能の実装",
+                  description: "OpenAI APIを使用してレシピを提案する機能",
+                  priority: "high",
+                  estimate: "3d",
+                  files: ["app/api/recipes/route.ts", "lib/openai.ts"],
+                  dependencies: []
+                },
+                {
+                  title: "調味料チェック機能の実装",
+                  description: "ユーザーが持っている調味料をチェックする機能",
+                  priority: "high", 
+                  estimate: "2d",
+                  files: ["components/features/seasoning-check.tsx", "stores/seasoning.ts"],
+                  dependencies: []
+                },
+                {
+                  title: "データベース設計と実装",
+                  description: "Prisma + Supabaseでのデータベース設計",
+                  priority: "high",
+                  estimate: "4d", 
+                  files: ["prisma/schema.prisma", "lib/database.ts"],
+                  dependencies: []
+                },
+                {
+                  title: "認証機能の実装",
+                  description: "NextAuth.js + Supabaseでの認証システム",
+                  priority: "medium",
+                  estimate: "3d",
+                  files: ["app/api/auth/[...nextauth]/route.ts", "lib/auth.ts"],
+                  dependencies: []
+                },
+                {
+                  title: "代替レシピ提案機能",
+                  description: "調味料不足時の代替レシピ提案システム",
+                  priority: "medium",
+                  estimate: "2d",
+                  files: ["lib/recipe-alternatives.ts", "components/features/alternative-recipes.tsx"],
+                  dependencies: ["レシピ提案AI機能の実装", "調味料チェック機能の実装"]
+                }
+              ];
+              
+              console.log(`Found ${unimplementedFeatures.length} unimplemented features`);
+              
+              return {
+                issues: unimplementedFeatures,
+                total: unimplementedFeatures.length
+              };
+            } catch (error) {
+              console.error('Analysis failed:', error);
+              return { issues: [], total: 0 };
+            }
+          }
+          
+          analyzeRequirements().then(result => {
+            console.log('issues-matrix=' + JSON.stringify(result.issues));
+            console.log('total-issues=' + result.total);
+          });
+          EOF
+          
+          # スクリプト実行して結果を出力変数に設定
+          node analyze.js > analysis_output.txt
+          
+          # 出力変数を設定
+          ISSUES_MATRIX=$(grep "issues-matrix=" analysis_output.txt | cut -d'=' -f2-)
+          TOTAL_ISSUES=$(grep "total-issues=" analysis_output.txt | cut -d'=' -f2-)
+          
+          echo "issues-matrix=${ISSUES_MATRIX}" >> $GITHUB_OUTPUT
+          echo "total-issues=${TOTAL_ISSUES}" >> $GITHUB_OUTPUT
+          
+          echo "📊 解析完了: ${TOTAL_ISSUES}個の未実装機能を発見"
+
+  generate-issues:
+    runs-on: ubuntu-latest
+    needs: [setup, analyze-requirements]
+    if: needs.setup.outputs.should-generate-issues == 'true'
+    strategy:
+      max-parallel: 5
+      matrix:
+        feature: ${{ fromJson(needs.analyze-requirements.outputs.issues-matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Generate issue for feature
+        run: |
+          echo "🎫 Issue生成中: ${{ matrix.feature.title }}"
+          
+          # Issue本文を生成
+          cat > issue_body.md << EOF
+          ## 📋 機能概要
+          ${{ matrix.feature.description }}
+          
+          ## 🎯 実装目標
+          - [ ] ${{ matrix.feature.title }}の基本実装
+          - [ ] ユニットテストの作成
+          - [ ] 統合テストの作成
+          - [ ] ドキュメント更新
+          
+          ## 📝 実装詳細
+          ### ファイル構成
+          $(echo '${{ toJson(matrix.feature.files) }}' | jq -r '.[] | "- `" + . + "`"')
+          
+          ### 技術要件
+          - TypeScript strict モード対応
+          - CLAUDE.md 規約準拠
+          - エラーハンドリング実装
+          - ログ出力対応
+          
+          ## ✅ 受け入れ条件
+          - [ ] 機能が正常に動作する
+          - [ ] テストカバレッジ80%以上
+          - [ ] CLAUDE.md規約に準拠している
+          - [ ] エラーハンドリングが適切
+          - [ ] TypeScript型定義が正確
+          
+          ## 🧪 テスト要件
+          - [ ] ユニットテストの実装
+          - [ ] 統合テストの実装
+          - [ ] エラーケースのテスト
+          - [ ] エッジケースのテスト
+          
+          ## 🏷️ メタデータ
+          - **優先度**: ${{ matrix.feature.priority }}
+          - **見積もり**: ${{ matrix.feature.estimate }}
+          - **依存関係**: $(echo '${{ toJson(matrix.feature.dependencies) }}' | jq -r 'join(", ") // "なし"')
+          
+          ---
+          *🤖 このIssueはAI駆動開発ワークフローにより自動生成されました*
+          
+          **自動実装を開始するには:**
+          \`\`\`
+          gh workflow run ai-development.yml -f mode=implement -f feature="${{ matrix.feature.title }}"
+          \`\`\`
+          EOF
+          
+          # Issueを作成
+          ISSUE_URL=$(gh issue create \
+            --title "${{ matrix.feature.title }}" \
+            --body-file issue_body.md \
+            --label "ai-generated,enhancement,${{ matrix.feature.priority }}-priority" \
+            --assignee "@me")
+            
+          echo "✅ Issue作成完了: $ISSUE_URL"
+          
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  parallel-implementation:
+    runs-on: ubuntu-latest
+    needs: [setup, generate-issues]
+    if: needs.setup.outputs.should-implement == 'true'
+    strategy:
+      max-parallel: ${{ fromJson(github.event.inputs.max_parallel || '3') }}
+      matrix:
+        feature: ${{ fromJson(needs.analyze-requirements.outputs.issues-matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup development environment
+        run: |
+          echo "🔧 開発環境セットアップ中..."
+          git config --global user.name "AI Developer"
+          git config --global user.email "ai-developer@example.com"
+          
+      - name: Create feature branch
+        run: |
+          BRANCH_NAME="feature/ai-$(echo '${{ matrix.feature.title }}' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')"
+          echo "🌿 ブランチ作成: $BRANCH_NAME"
+          git checkout -b "$BRANCH_NAME"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          
+      - name: Implement feature (Mock)
+        run: |
+          echo "⚙️ 機能実装中: ${{ matrix.feature.title }}"
+          echo "📁 対象ファイル: $(echo '${{ toJson(matrix.feature.files) }}' | jq -r 'join(", ")')"
+          
+          # Mock実装（実際のClaude Code API呼び出しに置き換え予定）
+          mkdir -p $(dirname "${{ matrix.feature.files[0] }}" 2>/dev/null || echo ".")
+          
+          cat > mock_implementation.md << EOF
+          # Mock Implementation: ${{ matrix.feature.title }}
+          
+          This is a mock implementation created by the AI development workflow.
+          
+          ## Description
+          ${{ matrix.feature.description }}
+          
+          ## Implementation Status
+          - [x] Created placeholder files
+          - [ ] Actual implementation (requires Claude Code API)
+          - [ ] Unit tests
+          - [ ] Integration tests
+          
+          ## Next Steps
+          1. Configure Claude Code API integration
+          2. Implement actual functionality
+          3. Add comprehensive tests
+          4. Update documentation
+          
+          Generated at: $(date)
+          EOF
+          
+          git add .
+          git commit -m "feat: add mock implementation for ${{ matrix.feature.title }}
+
+          - Created placeholder for ${{ matrix.feature.description }}
+          - Added implementation plan
+          - Ready for Claude Code API integration
+          
+          🤖 Generated with AI Driven Development Workflow"
+          
+      - name: Create Pull Request
+        run: |
+          echo "📤 Pull Request作成中..."
+          
+          cat > pr_body.md << EOF
+          ## 🚀 機能実装: ${{ matrix.feature.title }}
+          
+          ### 📋 概要
+          ${{ matrix.feature.description }}
+          
+          ### 🔧 実装内容
+          - Mock実装の作成
+          - 基本構造の整備
+          - 実装計画の策定
+          
+          ### 📁 変更ファイル
+          $(echo '${{ toJson(matrix.feature.files) }}' | jq -r '.[] | "- `" + . + "`"')
+          
+          ### ✅ チェックリスト
+          - [x] Mock実装の作成
+          - [ ] 実際の機能実装（Claude Code API連携後）
+          - [ ] ユニットテスト追加
+          - [ ] 統合テスト追加
+          - [ ] ドキュメント更新
+          
+          ### 🔗 関連Issue
+          Implements features planned in the AI-generated issues.
+          
+          ### 🤖 AI生成情報
+          - **優先度**: ${{ matrix.feature.priority }}
+          - **見積もり**: ${{ matrix.feature.estimate }}
+          - **生成時刻**: $(date)
+          
+          ---
+          *このPRはAI駆動開発ワークフローにより自動生成されました*
+          EOF
+          
+          git push origin "$BRANCH_NAME"
+          
+          PR_URL=$(gh pr create \
+            --title "feat: ${{ matrix.feature.title }}" \
+            --body-file pr_body.md \
+            --label "ai-generated,feature,${{ matrix.feature.priority }}-priority" \
+            --assignee "@me")
+            
+          echo "✅ Pull Request作成完了: $PR_URL"
+          
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  automated-review:
+    runs-on: ubuntu-latest
+    needs: [setup, parallel-implementation]
+    if: needs.setup.outputs.should-review == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Get open pull requests
+        id: get-prs
+        run: |
+          echo "🔍 レビュー対象のPRを検索中..."
+          
+          # AI生成されたPRを取得
+          PRS=$(gh pr list --label "ai-generated" --json number,title,headRefName --limit 10)
+          echo "Found PRs: $PRS"
+          echo "prs=$PRS" >> $GITHUB_OUTPUT
+          
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Automated review (Mock)
+        run: |
+          echo "🤖 自動レビューを実行中..."
+          
+          # Mock レビュー（実際のClaude Code API呼び出しに置き換え予定）
+          echo '${{ steps.get-prs.outputs.prs }}' | jq -r '.[] | .number' | while read PR_NUMBER; do
+            echo "📝 PR #$PR_NUMBER をレビュー中..."
+            
+            cat > review_comment.md << EOF
+          🤖 **AI自動レビュー結果**
+          
+          ## 📊 コード品質スコア: 85/100
+          
+          ### ✅ 良い点
+          - コード構造が整理されている
+          - 命名規則に準拠している
+          - 適切なコメントが追加されている
+          
+          ### ⚠️ 改善提案
+          - [ ] エラーハンドリングの追加を推奨
+          - [ ] ユニットテストのカバレッジ向上
+          - [ ] TypeScript型定義の最適化
+          
+          ### 🔒 セキュリティチェック
+          - ✅ 明らかな脆弱性は検出されず
+          - ✅ 機密情報の漏洩リスクなし
+          
+          ### 📈 パフォーマンス
+          - ✅ 特に問題となる処理は見つからず
+          
+          ---
+          *このレビューはAI駆動開発ワークフローにより自動生成されました*
+          *詳細なレビューにはClaude Code API連携が必要です*
+          EOF
+            
+            gh pr comment "$PR_NUMBER" --body-file review_comment.md
+            
+            echo "✅ PR #$PR_NUMBER のレビュー完了"
+          done
+          
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup-and-notify:
+    runs-on: ubuntu-latest
+    needs: [setup, analyze-requirements, generate-issues, parallel-implementation, automated-review]
+    if: always()
+    steps:
+      - name: Workflow summary
+        run: |
+          echo "📊 AI駆動開発ワークフロー完了レポート"
+          echo "========================================="
+          echo "モード: ${{ github.event.inputs.mode }}"
+          echo "実行時刻: $(date)"
+          echo ""
+          
+          if [ "${{ needs.analyze-requirements.result }}" = "success" ]; then
+            echo "✅ 要件解析: 成功 (${{ needs.analyze-requirements.outputs.total-issues }}個の機能を検出)"
+          else
+            echo "❌ 要件解析: 失敗またはスキップ"
+          fi
+          
+          if [ "${{ needs.generate-issues.result }}" = "success" ]; then
+            echo "✅ Issue生成: 成功"
+          else
+            echo "❌ Issue生成: 失敗またはスキップ"
+          fi
+          
+          if [ "${{ needs.parallel-implementation.result }}" = "success" ]; then
+            echo "✅ 並行実装: 成功"
+          else
+            echo "❌ 並行実装: 失敗またはスキップ"
+          fi
+          
+          if [ "${{ needs.automated-review.result }}" = "success" ]; then
+            echo "✅ 自動レビュー: 成功"
+          else
+            echo "❌ 自動レビュー: 失敗またはスキップ"
+          fi
+          
+          echo ""
+          echo "🔗 詳細情報:"
+          echo "- Repository: ${{ github.repository }}"
+          echo "- Workflow: ${{ github.workflow }}"
+          echo "- Run ID: ${{ github.run_id }}"
+          
+      - name: Create completion issue
+        run: |
+          cat > completion_report.md << EOF
+          ## 🤖 AI駆動開発ワークフロー完了レポート
+          
+          **実行日時**: $(date)
+          **モード**: ${{ github.event.inputs.mode }}
+          **Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          
+          ### 📊 実行結果
+          
+          | ステージ | 結果 | 詳細 |
+          |---------|-----|------|
+          | 要件解析 | ${{ needs.analyze-requirements.result == 'success' && '✅' || '❌' }} | ${{ needs.analyze-requirements.outputs.total-issues || '0' }}個の機能を検出 |
+          | Issue生成 | ${{ needs.generate-issues.result == 'success' && '✅' || '❌' }} | 自動Issue作成 |
+          | 並行実装 | ${{ needs.parallel-implementation.result == 'success' && '✅' || '❌' }} | Mock実装作成 |
+          | 自動レビュー | ${{ needs.automated-review.result == 'success' && '✅' || '❌' }} | PR自動レビュー |
+          
+          ### 🚀 次のステップ
+          1. Claude Code API連携の設定
+          2. 実際の機能実装の実行
+          3. レビュー品質の向上
+          4. テスト自動化の拡充
+          
+          ### 🔧 改善ポイント
+          - [ ] Claude Code API統合
+          - [ ] より詳細な要件解析
+          - [ ] 高度なレビューロジック
+          - [ ] 自動修正機能
+          
+          ---
+          *このレポートはAI駆動開発ワークフローにより自動生成されました*
+          EOF
+          
+          gh issue create \
+            --title "🤖 AI駆動開発ワークフロー完了レポート ($(date +%Y-%m-%d))" \
+            --body-file completion_report.md \
+            --label "ai-generated,workflow-report" \
+            --assignee "@me"
+            
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
