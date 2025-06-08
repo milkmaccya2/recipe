@@ -1,0 +1,199 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ユーザーモデル
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String?
+  image           String?
+  emailVerified   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  accounts        Account[]
+  sessions        Session[]
+  imageAnalyses   ImageAnalysis[]
+  recipes         Recipe[]
+  favoriteRecipes FavoriteRecipe[]
+  seasoningPreferences SeasoningPreference[]
+  cookingHistory  CookingHistory[]
+}
+
+// NextAuth.js用のモデル
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// 画像分析結果
+model ImageAnalysis {
+  id          String   @id @default(cuid())
+  userId      String
+  imageUrl    String
+  s3Key       String
+  confidence  Float
+  analyzedAt  DateTime @default(now())
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id])
+  ingredients DetectedIngredient[]
+  recipes     Recipe[]
+}
+
+// 検出された食材
+model DetectedIngredient {
+  id            String        @id @default(cuid())
+  analysisId    String
+  name          String
+  japaneseName  String?
+  confidence    Float
+  category      String
+  boundingBox   Json?
+  
+  // Relations
+  analysis      ImageAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+}
+
+// レシピモデル
+model Recipe {
+  id              String   @id @default(cuid())
+  userId          String?
+  analysisId      String?
+  title           String
+  description     String
+  cookingTime     String
+  difficulty      String
+  servings        Int
+  calories        Int?
+  imageUrl        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  user            User?    @relation(fields: [userId], references: [id])
+  analysis        ImageAnalysis? @relation(fields: [analysisId], references: [id])
+  ingredients     RecipeIngredient[]
+  steps           RecipeStep[]
+  favoriteBy      FavoriteRecipe[]
+  cookingHistory  CookingHistory[]
+  nutritionInfo   NutritionInfo?
+}
+
+// レシピの材料
+model RecipeIngredient {
+  id         String @id @default(cuid())
+  recipeId   String
+  name       String
+  amount     String
+  unit       String
+  category   String?
+  isOptional Boolean @default(false)
+  
+  // Relations
+  recipe     Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+}
+
+// レシピの手順
+model RecipeStep {
+  id          String  @id @default(cuid())
+  recipeId    String
+  stepNumber  Int
+  instruction String  @db.Text
+  duration    String?
+  tips        String?
+  
+  // Relations
+  recipe      Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  @@unique([recipeId, stepNumber])
+}
+
+// 栄養情報
+model NutritionInfo {
+  id       String @id @default(cuid())
+  recipeId String @unique
+  protein  Float
+  carbs    Float
+  fat      Float
+  fiber    Float
+  
+  // Relations
+  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+}
+
+// お気に入りレシピ
+model FavoriteRecipe {
+  id        String   @id @default(cuid())
+  userId    String
+  recipeId  String
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user      User     @relation(fields: [userId], references: [id])
+  recipe    Recipe   @relation(fields: [recipeId], references: [id])
+  
+  @@unique([userId, recipeId])
+}
+
+// 調味料の所持状況
+model SeasoningPreference {
+  id          String   @id @default(cuid())
+  userId      String
+  seasoningId String
+  name        String
+  category    String
+  isAvailable Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id])
+  
+  @@unique([userId, seasoningId])
+}
+
+// 調理履歴
+model CookingHistory {
+  id         String   @id @default(cuid())
+  userId     String
+  recipeId   String
+  cookedAt   DateTime @default(now())
+  rating     Int?     // 1-5の評価
+  notes      String?  @db.Text
+  
+  // Relations
+  user       User     @relation(fields: [userId], references: [id])
+  recipe     Recipe   @relation(fields: [recipeId], references: [id])
+}

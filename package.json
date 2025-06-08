@@ -15,6 +15,9 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.5.3",
+    "@aws-sdk/client-rekognition": "^3.826.0",
+    "@aws-sdk/client-s3": "^3.826.0",
+    "@aws-sdk/s3-request-presigner": "^3.826.0",
     "@hookform/resolvers": "^3.9.0",
     "@next/font": "14.2.15",
     "@prisma/client": "^5.21.1",
@@ -24,7 +27,7 @@
     "date-fns": "^4.1.0",
     "jotai": "^2.12.5",
     "lucide-react": "^0.513.0",
-    "nanoid": "^5.0.8",
+    "nanoid": "^5.1.5",
     "next": "^14.2.29",
     "next-auth": "^5.0.0-beta.22",
     "openai": "^4.67.3",
