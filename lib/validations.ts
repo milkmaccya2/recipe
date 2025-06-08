@@ -12,12 +12,13 @@ export const uploadImageSchema = z.object({
       (data) => {
         // Base64データのサイズをチェック（おおよそのファイルサイズ）
         const base64Data = data.split(',')[1]
+        if (!base64Data) return false
         const sizeInBytes = (base64Data.length * 3) / 4
         return sizeInBytes <= IMAGE_OPTIMIZATION.upload.maxSize
       },
       `File size must be less than ${IMAGE_OPTIMIZATION.upload.maxSize / (1024 * 1024)}MB`
     ),
-  filename: z.string().min(1, 'Filename is required'),
+  filename: z.string().min(1, 'Filename is required').optional(),
   userId: z.string().uuid().optional() // 認証実装後に必須にする
 })
 
