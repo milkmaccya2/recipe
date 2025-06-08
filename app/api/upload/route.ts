@@ -4,6 +4,8 @@ import { ERROR_CODES, ERROR_MESSAGES, DEV_CONFIG } from '@/lib/constants'
 import { generateRequestId } from '@/lib/utils'
 import { uploadImageToS3 } from '@/lib/aws/s3'
 import { analyzeImageWithRekognition, analyzeImageFromBase64 } from '@/lib/aws/rekognition'
+import { auth } from '@/lib/auth'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 // モック用の画像解析結果
 const MOCK_ANALYSIS_RESULTS = [
@@ -50,6 +52,10 @@ export async function POST(request: NextRequest) {
 
     const { image, filename } = validationResult.data
 
+    // ユーザー情報を取得（ログイン状態に関係なく実行）
+    const session = await auth()
+    const userId = session?.user?.id
+
     // 開発モードではモックレスポンスを返す
     if (DEV_CONFIG.useAiMock) {
       console.log(`[${requestId}] Using mock AI analysis for development`)
@@ -57,17 +63,24 @@ export async function POST(request: NextRequest) {
       // モック用の遅延を追加
       await new Promise(resolve => setTimeout(resolve, 2000))
       
+      const mockResult = {
+        uploadId: `upload_${Date.now()}`,
+        imageUrl: image, // 開発用：Base64データをそのまま返す
+        analysis: {
+          ingredients: MOCK_ANALYSIS_RESULTS,
+          confidence: 0.88,
+          processingTime: 1.5
+        },
+        requestId
+      }
+
+      // ログインしている場合は履歴に保存
+      if (userId) {
+        await saveUploadHistory(userId, mockResult, filename)
+      }
+      
       return NextResponse.json({
-        data: {
-          uploadId: `upload_${Date.now()}`,
-          imageUrl: image, // 開発用：Base64データをそのまま返す
-          analysis: {
-            ingredients: MOCK_ANALYSIS_RESULTS,
-            confidence: 0.88,
-            processingTime: 1.5
-          },
-          requestId
-        }
+        data: mockResult
       })
     }
 
@@ -79,14 +92,22 @@ export async function POST(request: NextRequest) {
       // 2. Amazon Rekognitionで画像解析
       const analysisResult = await analyzeImageWithRekognition(key)
       
-      // 3. 結果を返す
+      // 3. 結果を作成
+      const result = {
+        uploadId: `upload_${Date.now()}`,
+        imageUrl,
+        analysis: analysisResult,
+        requestId
+      }
+
+      // 4. ログインしている場合は履歴に保存
+      if (userId) {
+        await saveUploadHistory(userId, result, filename)
+      }
+
+      // 5. 結果を返す
       return NextResponse.json({
-        data: {
-          uploadId: `upload_${Date.now()}`,
-          imageUrl,
-          analysis: analysisResult,
-          requestId
-        }
+        data: result
       })
       
     } catch (error) {
@@ -142,6 +163,33 @@ export async function POST(request: NextRequest) {
   }
 }
 
+
+// アップロード履歴を保存
+async function saveUploadHistory(userId: string, result: any, filename: string | undefined) {
+  try {
+    const supabase = createServerSupabaseClient()
+    
+    const { error } = await supabase
+      .from('upload_history')
+      .insert({
+        user_id: userId,
+        upload_id: result.uploadId,
+        image_url: result.imageUrl,
+        s3_key: result.s3Key || null,
+        detected_ingredients: result.analysis?.ingredients || [],
+        analysis_confidence: result.analysis?.confidence || 0,
+        processing_time: result.analysis?.processingTime || 0
+      })
+
+    if (error) {
+      console.error('Error saving upload history:', error)
+    } else {
+      console.log(`Upload history saved for user ${userId}`)
+    }
+  } catch (error) {
+    console.error('Error in saveUploadHistory:', error)
+  }
+}
 
 export async function GET() {
   return NextResponse.json(

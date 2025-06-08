@@ -6,6 +6,7 @@ import { ImageUpload } from '@/components/features/image-upload'
 import { Header } from '@/components/features/header'
 import { RecipeList } from '@/components/features/recipe-list'
 import { detectedIngredientsAtom, confirmedIngredientsAtom } from '@/stores/ingredients'
+import { useFavorites } from '@/hooks/use-favorites'
 import { Recipe, RecipeSuggestionRequest } from '@/lib/openai'
 import { Loader2, ChefHat, ArrowLeft } from 'lucide-react'
 
@@ -18,6 +19,7 @@ export default function HomePage() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoadingRecipes, setIsLoadingRecipes] = useState(false)
   const [recipeError, setRecipeError] = useState<string | null>(null)
+  const { toggleFavorite, favoriteIds } = useFavorites()
 
   const handleImageAnalyzed = useCallback((analysis: any) => {
     if (analysis && analysis.ingredients && analysis.ingredients.length > 0) {
@@ -203,6 +205,8 @@ export default function HomePage() {
               recipes={recipes}
               isLoading={isLoadingRecipes}
               error={recipeError}
+              onFavoriteToggle={toggleFavorite}
+              favoriteRecipeIds={favoriteIds}
             />
           </div>
         )}

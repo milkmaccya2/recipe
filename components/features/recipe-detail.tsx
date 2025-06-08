@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Clock, Users, ChefHat, Heart, Star, ArrowLeft, CheckCircle } from 'lucide-react'
 import { Recipe } from '@/lib/openai'
+import { useRecipeHistory } from '@/hooks/use-recipe-history'
+import { SeasoningChecker } from './seasoning-checker'
 import { cn } from '@/lib/utils'
 
 interface RecipeDetailProps {
@@ -19,6 +21,19 @@ export function RecipeDetail({
   onToggleFavorite 
 }: RecipeDetailProps) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
+  const [alternativeRecipes, setAlternativeRecipes] = useState<Recipe[]>([])
+  const { addToHistory } = useRecipeHistory()
+
+  // レシピが表示されたら履歴に追加
+  useEffect(() => {
+    if (recipe) {
+      addToHistory(recipe)
+    }
+  }, [recipe, addToHistory])
+
+  const handleAlternativesRequested = (alternatives: Recipe[]) => {
+    setAlternativeRecipes(alternatives)
+  }
 
   const toggleStep = (stepNumber: number) => {
     const newCompleted = new Set(completedSteps)
@@ -247,6 +262,40 @@ export function RecipeDetail({
             ))}
           </div>
         </div>
+
+        {/* 調味料チェック */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-gray-900">調味料チェック</h2>
+          <SeasoningChecker 
+            recipe={recipe} 
+            onAlternativesRequested={handleAlternativesRequested}
+          />
+        </div>
+
+        {/* 代替レシピ */}
+        {alternativeRecipes.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-gray-900">代替レシピ</h2>
+            <div className="grid gap-4">
+              {alternativeRecipes.map((altRecipe, index) => (
+                <div key={index} className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-2">{altRecipe.title}</h3>
+                  <p className="text-gray-600 text-sm mb-3">{altRecipe.description}</p>
+                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                    <div className="flex items-center space-x-1">
+                      <Clock className="w-4 h-4" />
+                      <span>{altRecipe.cookingTime}</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <Users className="w-4 h-4" />
+                      <span>{altRecipe.servings}人分</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 調理のコツ */}
         {recipe.tips && recipe.tips.length > 0 && (
