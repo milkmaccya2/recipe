@@ -1,38 +1,52 @@
 'use client'
 
 import { useCallback, useState } from 'react'
+import { useAtom } from 'jotai'
 import { useDropzone } from 'react-dropzone'
 import { Camera, Upload, X, Loader2 } from 'lucide-react'
 import { validateImageFile, formatFileSize } from '@/lib/utils'
+import { fileToBase64 } from '@/lib/utils/image'
+import { CameraModal } from './camera-modal'
+import {
+  uploadStateAtom,
+  uploadedImagesAtom,
+  startUploadAtom,
+  updateUploadProgressAtom,
+  completeUploadAtom,
+  setUploadErrorAtom,
+  clearUploadErrorAtom,
+  removeImageAtom
+} from '@/stores/upload'
 
 interface ImageUploadProps {
   onImageSelect?: (file: File) => void
 }
 
 export function ImageUpload({ onImageSelect }: ImageUploadProps) {
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
-  const [error, setError] = useState<string>('')
-  const [uploading, setUploading] = useState(false)
+  const [uploadState] = useAtom(uploadStateAtom)
+  const [uploadedImages] = useAtom(uploadedImagesAtom)
+  const [, startUpload] = useAtom(startUploadAtom)
+  const [, updateProgress] = useAtom(updateUploadProgressAtom)
+  const [, completeUpload] = useAtom(completeUploadAtom)
+  const [, setError] = useAtom(setUploadErrorAtom)
+  const [, clearError] = useAtom(clearUploadErrorAtom)
+  const [, removeImage] = useAtom(removeImageAtom)
+  
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    setError('')
-    const validFiles: File[] = []
+    clearError()
     
     for (const file of acceptedFiles) {
       const validation = validateImageFile(file)
       if (validation.isValid) {
-        validFiles.push(file)
+        handleFileUpload(file)
       } else {
         setError(validation.error || 'ファイルが無効です')
         return
       }
     }
-    
-    setSelectedFiles(prev => [...prev, ...validFiles])
-    if (validFiles.length > 0 && onImageSelect) {
-      onImageSelect(validFiles[0])
-    }
-  }, [onImageSelect])
+  }, [clearError, setError])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -43,36 +57,71 @@ export function ImageUpload({ onImageSelect }: ImageUploadProps) {
     multiple: true
   })
 
-  const openCamera = async () => {
+  const openCamera = () => {
+    setIsCameraOpen(true)
+  }
+
+  const handleFileUpload = async (file: File) => {
     try {
-      if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
-        // カメラアクセスの実装（後ほど詳細実装）
-        console.log('Camera access requested')
-      } else {
-        setError('カメラ機能がサポートされていません')
+      // アップロード開始
+      startUpload(file)
+      
+      if (onImageSelect) {
+        onImageSelect(file)
       }
-    } catch (err) {
-      setError('カメラにアクセスできませんでした')
+      
+      // ファイルをBase64に変換
+      updateProgress(10)
+      const base64Data = await fileToBase64(file)
+      
+      updateProgress(30)
+      
+      // APIにアップロード
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Data,
+          filename: file.name,
+        }),
+      })
+      
+      updateProgress(70)
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error?.message || 'アップロードに失敗しました')
+      }
+      
+      const result = await response.json()
+      updateProgress(100)
+      
+      // アップロード完了
+      completeUpload({
+        imageUrl: result.data.imageUrl,
+        analysis: result.data.analysis
+      })
+      
+    } catch (error) {
+      console.error('Upload error:', error)
+      setError(error instanceof Error ? error.message : 'アップロードに失敗しました')
     }
   }
 
-  const removeFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
+  const handleCameraCapture = (file: File) => {
+    const validation = validateImageFile(file)
+    if (validation.isValid) {
+      handleFileUpload(file)
+    } else {
+      setError(validation.error || 'ファイルが無効です')
+    }
+    setIsCameraOpen(false)
   }
 
-  const handleUpload = async () => {
-    if (selectedFiles.length === 0) return
-    
-    setUploading(true)
-    try {
-      // アップロード処理の実装（後ほど詳細実装）
-      console.log('Uploading files:', selectedFiles)
-      await new Promise(resolve => setTimeout(resolve, 2000)) // デモ用の遅延
-    } catch (err) {
-      setError('アップロードに失敗しました')
-    } finally {
-      setUploading(false)
-    }
+  const handleRemoveImage = (imageId: string) => {
+    removeImage(imageId)
   }
 
   return (
@@ -119,39 +168,62 @@ export function ImageUpload({ onImageSelect }: ImageUploadProps) {
       </div>
 
       {/* エラー表示 */}
-      {error && (
+      {uploadState.error && (
         <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-600 text-sm">{error}</p>
+          <p className="text-red-600 text-sm">{uploadState.error}</p>
         </div>
       )}
 
-      {/* 選択されたファイル一覧 */}
-      {selectedFiles.length > 0 && (
+      {/* アップロード進捗表示 */}
+      {uploadState.isUploading && (
+        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-3">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+            <div className="flex-1">
+              <p className="text-sm text-blue-600 mb-1">画像を解析中...</p>
+              <div className="w-full bg-blue-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadState.progress}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* アップロード済み画像一覧 */}
+      {uploadedImages.length > 0 && (
         <div className="mt-6 space-y-3">
-          <h3 className="text-lg font-semibold">選択された画像</h3>
+          <h3 className="text-lg font-semibold">解析済み画像</h3>
           
           <div className="space-y-2">
-            {selectedFiles.map((file, index) => (
+            {uploadedImages.map((image) => (
               <div
-                key={index}
+                key={image.id}
                 className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
               >
                 <div className="flex items-center space-x-3">
                   <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
                     <img
-                      src={URL.createObjectURL(file)}
-                      alt={file.name}
+                      src={image.imageUrl}
+                      alt={image.file.name}
                       className="w-full h-full object-cover rounded-lg"
                     />
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{file.name}</p>
-                    <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">{image.file.name}</p>
+                    <p className="text-sm text-gray-500">{formatFileSize(image.file.size)}</p>
+                    {image.analysis && (
+                      <p className="text-sm text-green-600">
+                        {image.analysis.ingredients.length}種類の食材を検出
+                      </p>
+                    )}
                   </div>
                 </div>
                 
                 <button
-                  onClick={() => removeFile(index)}
+                  onClick={() => handleRemoveImage(image.id)}
                   className="text-gray-400 hover:text-red-500 transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -159,23 +231,15 @@ export function ImageUpload({ onImageSelect }: ImageUploadProps) {
               </div>
             ))}
           </div>
-          
-          <button
-            onClick={handleUpload}
-            disabled={uploading}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white py-3 rounded-lg transition-colors flex items-center justify-center space-x-2"
-          >
-            {uploading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>解析中...</span>
-              </>
-            ) : (
-              <span>画像を解析する</span>
-            )}
-          </button>
         </div>
       )}
+
+      {/* カメラモーダル */}
+      <CameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   )
 }
