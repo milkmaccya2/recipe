@@ -20,7 +20,7 @@ const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME!;
 const PRESIGNED_URL_EXPIRES = 3600; // 1時間
 
 /**
- * S3へ画像をアップロード
+ * S3へ画像をアップロード（Base64）
  */
 export async function uploadImageToS3(
   base64Data: string,
@@ -35,17 +35,34 @@ export async function uploadImageToS3(
     
     const blob = base64ToBlob(base64Data, mimeType);
     const buffer = Buffer.from(await blob.arrayBuffer());
-    
+
+    return await uploadBufferToS3(buffer, filename, mimeType, userId);
+  } catch (error) {
+    console.error('Base64アップロードエラー:', error);
+    throw new Error(`画像のアップロードに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * S3へ画像をアップロード（Buffer）
+ */
+export async function uploadBufferToS3(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string = 'image/jpeg',
+  userId: string = 'anonymous'
+): Promise<{ imageUrl: string; s3Key: string }> {
+  try {
     // S3のキー（パス）を生成
     const timestamp = Date.now();
-    const key = `uploads/${userId}/${timestamp}-${nanoid()}.jpg`;
+    const s3Key = `uploads/${userId}/${timestamp}-${nanoid()}.jpg`;
     
     // S3にアップロード
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: key,
+      Key: s3Key,
       Body: buffer,
-      ContentType: blob.type || 'image/jpeg',
+      ContentType: mimeType,
       Metadata: {
         originalFilename: filename,
         uploadedAt: new Date().toISOString(),
@@ -56,11 +73,11 @@ export async function uploadImageToS3(
     await s3Client.send(command);
     
     // CloudFront URLまたはS3 URLを生成
-    const imageUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    const imageUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
     
-    return { imageUrl, key };
+    return { imageUrl, s3Key };
   } catch (error) {
-    console.error('S3アップロードエラー:', error);
+    console.error('Bufferアップロードエラー:', error);
     throw new Error(`画像のアップロードに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
