@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(await file.arrayBuffer());
       
       // S3にアップロードしてから分析
-      const { s3Key, imageUrl } = await uploadBufferToS3(buffer, file.name);
+      const { key: s3Key, imageUrl } = await uploadBufferToS3(buffer, file.name);
       const ingredients = await detectIngredients(buffer);
       
       const result = {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
           }
           
           try {
-            const { s3Key, imageUrl } = await uploadBufferToS3(
+            const { key: s3Key, imageUrl } = await uploadBufferToS3(
               images[index].buffer, 
               analysis.filename
             );

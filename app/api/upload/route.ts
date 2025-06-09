@@ -3,7 +3,7 @@ import { uploadImageSchema } from '@/lib/validations'
 import { ERROR_CODES, ERROR_MESSAGES, DEV_CONFIG } from '@/lib/constants'
 import { generateRequestId } from '@/lib/utils'
 import { uploadImageToS3 } from '@/lib/aws/s3'
-import { analyzeImageWithRekognition, analyzeImageFromBase64 } from '@/lib/aws/rekognition'
+import { detectIngredients } from '@/lib/aws/rekognition'
 import { auth } from '@/lib/auth'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
 
     // 開発モードではモックレスポンスを返す
     if (DEV_CONFIG.useAiMock) {
-      console.log(`[${requestId}] Using mock AI analysis for development`)
       
       // モック用の遅延を追加
       await new Promise(resolve => setTimeout(resolve, 2000))
@@ -90,13 +89,21 @@ export async function POST(request: NextRequest) {
       const { imageUrl, key } = await uploadImageToS3(image, filename || 'unknown.jpg')
       
       // 2. Amazon Rekognitionで画像解析
-      const analysisResult = await analyzeImageWithRekognition(key)
+      // Base64文字列からBufferに変換
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, '')
+      const imageBuffer = Buffer.from(base64Data, 'base64')
+      const analysisResult = await detectIngredients(imageBuffer)
       
       // 3. 結果を作成
       const result = {
         uploadId: `upload_${Date.now()}`,
         imageUrl,
-        analysis: analysisResult,
+        analysis: {
+          ingredients: analysisResult,
+          confidence: analysisResult.length > 0 ? 
+            analysisResult.reduce((acc, item) => acc + item.confidence, 0) / analysisResult.length / 100 : 0,
+          processingTime: 1.0
+        },
         requestId
       }
 
@@ -111,7 +118,6 @@ export async function POST(request: NextRequest) {
       })
       
     } catch (error) {
-      console.error(`[${requestId}] Processing error:`, error)
       
       if (error instanceof Error) {
         if (error.message.includes('rate limit')) {
@@ -147,7 +153,6 @@ export async function POST(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error(`[${requestId}] Unexpected error:`, error)
     
     return NextResponse.json(
       {

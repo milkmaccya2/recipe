@@ -215,9 +215,24 @@ export function ImageUpload({ onImageSelect }: ImageUploadProps) {
                     <p className="font-medium text-gray-900">{image.file.name}</p>
                     <p className="text-sm text-gray-500">{formatFileSize(image.file.size)}</p>
                     {image.analysis && (
-                      <p className="text-sm text-green-600">
-                        {image.analysis.ingredients.length}種類の食材を検出
-                      </p>
+                      <>
+                        <p className="text-sm text-green-600">
+                          {image.analysis.ingredients.length}種類の食材を検出
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {image.analysis.ingredients.map((ingredient, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800"
+                            >
+                              {(ingredient as any).japaneseName || ingredient.name}
+                              <span className="ml-1 text-green-600">
+                                ({Math.round(ingredient.confidence)}%)
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

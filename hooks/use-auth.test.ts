@@ -8,27 +8,25 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from './use-auth'
 
 // モック設定
-jest.mock('next-auth/react')
-jest.mock('next/navigation')
-
 const mockUseSession = useSession as jest.MockedFunction<typeof useSession>
 const mockSignIn = signIn as jest.MockedFunction<typeof signIn>
 const mockSignOut = signOut as jest.MockedFunction<typeof signOut>
-const mockUseRouter = useRouter as jest.MockedFunction<typeof useRouter>
+const mockUseRouter = useRouter as jest.Mock
 
 describe('useAuth', () => {
   const mockPush = jest.fn()
+  const mockRouter = {
+    push: mockPush,
+    replace: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
+    prefetch: jest.fn()
+  }
 
   beforeEach(() => {
     jest.clearAllMocks()
-    mockUseRouter.mockReturnValue({
-      push: mockPush,
-      replace: jest.fn(),
-      back: jest.fn(),
-      forward: jest.fn(),
-      refresh: jest.fn(),
-      prefetch: jest.fn(),
-    } as any)
+    mockUseRouter.mockReturnValue(mockRouter)
     
     // グローバルオブジェクトのモック
     Object.defineProperty(window, 'location', {

@@ -38,7 +38,6 @@ export async function uploadImageToS3(
 
     return await uploadBufferToS3(buffer, filename, mimeType, userId);
   } catch (error) {
-    console.error('Base64アップロードエラー:', error);
     throw new Error(`画像のアップロードに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -51,7 +50,7 @@ export async function uploadBufferToS3(
   filename: string,
   mimeType: string = 'image/jpeg',
   userId: string = 'anonymous'
-): Promise<{ imageUrl: string; s3Key: string }> {
+): Promise<{ imageUrl: string; key: string }> {
   try {
     // S3のキー（パス）を生成
     const timestamp = Date.now();
@@ -63,6 +62,7 @@ export async function uploadBufferToS3(
       Key: s3Key,
       Body: buffer,
       ContentType: mimeType,
+      // ACLは使用しない（バケットポリシーで制御）
       Metadata: {
         originalFilename: filename,
         uploadedAt: new Date().toISOString(),
@@ -75,9 +75,8 @@ export async function uploadBufferToS3(
     // CloudFront URLまたはS3 URLを生成
     const imageUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
     
-    return { imageUrl, s3Key };
+    return { imageUrl, key: s3Key };
   } catch (error) {
-    console.error('Bufferアップロードエラー:', error);
     throw new Error(`画像のアップロードに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

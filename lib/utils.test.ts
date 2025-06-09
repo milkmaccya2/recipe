@@ -19,7 +19,7 @@ describe('validateImageFile関数', () => {
     const file = createMockFile('test.jpg', 5 * 1024 * 1024, 'image/jpeg')
     const result = validateImageFile(file)
     expect(result.isValid).toBe(true)
-    expect(result.error).toBeNull()
+    expect(result.error).toBeUndefined()
   })
 
   it('ファイルサイズが大きすぎる場合を拒否する', () => {
@@ -43,7 +43,7 @@ describe('validateImageFile関数', () => {
 
 describe('formatFileSize関数', () => {
   it('ファイルサイズを正しくフォーマットする', () => {
-    expect(formatFileSize(512)).toBe('512 bytes')
+    expect(formatFileSize(512)).toBe('512 Bytes')
     expect(formatFileSize(1024)).toBe('1 KB')
     expect(formatFileSize(1536)).toBe('1.5 KB')
     expect(formatFileSize(1024 * 1024)).toBe('1 MB')

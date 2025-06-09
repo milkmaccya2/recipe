@@ -36,7 +36,7 @@ const rekognitionClient = new RekognitionClient({
 });
 
 // 信頼度の閾値
-const CONFIDENCE_THRESHOLD = 70;
+const CONFIDENCE_THRESHOLD = 50; // 70から50に下げて、より多くのラベルを検出
 
 // 食材として認識するラベルのマッピング
 const FOOD_LABEL_MAPPING: Record<string, string> = {
@@ -99,6 +99,27 @@ const FOOD_LABEL_MAPPING: Record<string, string> = {
   'Mushroom': 'きのこ',
   'Herb': 'ハーブ',
   'Spice': 'スパイス',
+  
+  // 日本食材（一般的なラベルから推測）
+  'Soybean': '大豆製品（納豆・豆腐など）',
+  'Beans': '豆類（納豆の可能性）',
+  'Fermented Food': '発酵食品（納豆・味噌など）',
+  'Seaweed': '海苔・わかめ',
+  'Soy Sauce': '醤油',
+  'Miso': '味噌',
+  'Sake': '日本酒',
+  'Tea': 'お茶',
+  
+  // 容器・パッケージ（中身を推測）
+  'Bottle': 'ボトル（飲料・調味料）',
+  'Jar': '瓶詰め',
+  'Container': '容器入り食品',
+  'Box': '箱入り食品',
+  'Can': '缶詰',
+  'Package': 'パッケージ食品',
+  'Plastic Wrap': 'ラップで包まれた食材',
+  'Plastic Bag': '袋入り食品',
+  'Bowl': 'ボウルに入った食材',
 };
 
 /**
@@ -138,7 +159,6 @@ export async function detectIngredients(imageBuffer: Buffer): Promise<DetectedIn
 
     return ingredients;
   } catch (error) {
-    console.error('Rekognition分析エラー:', error);
     throw new Error('画像分析に失敗しました');
   }
 }
@@ -171,19 +191,55 @@ export async function analyzeMultipleImages(
  * 食材関連のラベルかどうかを判定
  */
 function isIngredientLabel(label: string): boolean {
-  const foodKeywords = [
-    'vegetable', 'fruit', 'meat', 'fish', 'seafood', 'poultry',
-    'beef', 'pork', 'chicken', 'lamb', 'shrimp', 'salmon',
-    'carrot', 'potato', 'onion', 'tomato', 'lettuce', 'cabbage',
-    'apple', 'banana', 'orange', 'grape', 'strawberry',
-    'rice', 'bread', 'pasta', 'noodle', 'cheese', 'milk',
-    'egg', 'butter', 'oil', 'sauce', 'spice', 'herb',
-    'food', 'ingredient', 'produce', 'grocery'
+  // 除外する一般的なラベル（冷蔵庫関連も追加）
+  const excludeLabels = [
+    'food', 'vegetable', 'fruit', 'produce', 'ingredient', 
+    'grocery', 'meal', 'dish', 'cuisine', 'cooking',
+    'fresh', 'organic', 'healthy', 'nutrition',
+    'shelf', 'device', 'appliance', 'refrigerator', 'cabinet',
+    'furniture', 'closet', 'cupboard', 'pantry', 'shop',
+    'electrical device', 'medicine chest'
   ];
   
   const lowerLabel = label.toLowerCase();
-  return foodKeywords.some(keyword => lowerLabel.includes(keyword)) ||
-         FOOD_LABEL_MAPPING.hasOwnProperty(label);
+  
+  // 除外ラベルに完全一致する場合はfalse
+  if (excludeLabels.includes(lowerLabel)) {
+    return false;
+  }
+  
+  // 具体的な食材名のマッピングがある場合はtrue
+  if (FOOD_LABEL_MAPPING.hasOwnProperty(label)) {
+    return true;
+  }
+  
+  // 具体的な食材キーワードのリスト
+  const specificFoodKeywords = [
+    // 野菜
+    'tomato', 'onion', 'carrot', 'potato', 'cucumber', 'lettuce', 
+    'cabbage', 'spinach', 'broccoli', 'pepper', 'eggplant', 'zucchini',
+    'corn', 'peas', 'beans', 'mushroom', 'garlic', 'celery',
+    'radish', 'leek', 'asparagus', 'cauliflower',
+    // 果物
+    'apple', 'banana', 'orange', 'grape', 'strawberry', 'watermelon',
+    'peach', 'lemon', 'cherry', 'mango', 'pineapple', 'kiwi',
+    'melon', 'berry', 'citrus', 'pear',
+    // 肉類
+    'beef', 'pork', 'chicken', 'lamb', 'turkey', 'duck',
+    'meat', 'ham', 'bacon', 'sausage',
+    // 魚介類
+    'fish', 'salmon', 'tuna', 'shrimp', 'crab', 'lobster', 'squid',
+    'seafood', 'shellfish',
+    // 乳製品・その他
+    'egg', 'cheese', 'milk', 'butter', 'yogurt', 'tofu', 'rice', 
+    'bread', 'pasta', 'noodle', 'juice', 'bottle', 'jar',
+    'container', 'box', 'can', 'package',
+    // 日本食材関連
+    'soybean', 'soy', 'bean', 'fermented', 'seaweed', 'nori',
+    'miso', 'sake', 'tea', 'sauce'
+  ];
+  
+  return specificFoodKeywords.some(keyword => lowerLabel.includes(keyword));
 }
 
 /**

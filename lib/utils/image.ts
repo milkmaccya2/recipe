@@ -26,7 +26,7 @@ export function fileToBase64(file: File): Promise<string> {
  * Base64文字列からBlobを作成
  */
 export function base64ToBlob(base64: string, mimeType: string): Blob {
-  const base64Data = base64.split(',')[1]
+  const base64Data = base64.includes(',') ? base64.split(',')[1] : base64
   const byteCharacters = atob(base64Data)
   const byteNumbers = new Array(byteCharacters.length)
   
