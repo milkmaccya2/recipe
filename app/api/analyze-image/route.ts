@@ -5,7 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeImage, analyzeMultipleImages } from '@/lib/aws-rekognition';
+import { detectIngredients, analyzeMultipleImages } from '@/lib/aws/rekognition';
+import { uploadBufferToS3 } from '@/lib/aws/s3';
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +26,19 @@ export async function POST(request: NextRequest) {
       const file = files[0];
       const buffer = Buffer.from(await file.arrayBuffer());
       
-      const result = await analyzeImage(buffer, file.name);
+      // S3にアップロードしてから分析
+      const { s3Key, imageUrl } = await uploadBufferToS3(buffer, file.name);
+      const ingredients = await detectIngredients(buffer);
+      
+      const result = {
+        ingredients,
+        imageUrl,
+        s3Key,
+        analyzedAt: new Date(),
+        confidence: ingredients.length > 0
+          ? ingredients.reduce((sum, ing) => sum + ing.confidence, 0) / ingredients.length
+          : 0,
+      };
       
       return NextResponse.json({
         success: true,
@@ -40,7 +53,46 @@ export async function POST(request: NextRequest) {
         }))
       );
       
-      const results = await analyzeMultipleImages(images);
+      const analysisResults = await analyzeMultipleImages(images);
+      
+      // 各画像をS3にアップロード
+      const results = await Promise.all(
+        analysisResults.map(async (analysis, index) => {
+          if (analysis.error) {
+            return {
+              filename: analysis.filename,
+              error: analysis.error,
+              ingredients: [],
+              imageUrl: null,
+              s3Key: null,
+            };
+          }
+          
+          try {
+            const { s3Key, imageUrl } = await uploadBufferToS3(
+              images[index].buffer, 
+              analysis.filename
+            );
+            return {
+              filename: analysis.filename,
+              ingredients: analysis.ingredients,
+              imageUrl,
+              s3Key,
+              confidence: analysis.ingredients.length > 0
+                ? analysis.ingredients.reduce((sum, ing) => sum + ing.confidence, 0) / analysis.ingredients.length
+                : 0,
+            };
+          } catch (uploadError) {
+            return {
+              filename: analysis.filename,
+              error: `Upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
+              ingredients: analysis.ingredients,
+              imageUrl: null,
+              s3Key: null,
+            };
+          }
+        })
+      );
       
       // 全画像の食材を統合
       const allIngredients = results.flatMap(r => r.ingredients);

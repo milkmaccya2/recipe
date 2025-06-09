@@ -56,3 +56,10 @@ logs
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/coverage/
+
+# Temporary files
+*.tmp
+*.temp
+test-*.js
+debug-*.js

@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Production builds
+.next/
+out/
+dist/
+
+# Logs
+logs
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# Environment variables
+.env*
+
+# Coverage reports
+coverage/
+
+# Temporary folders
+tmp/
+temp/
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Prisma
+prisma/migrations/

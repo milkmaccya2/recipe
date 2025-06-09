@@ -2,12 +2,14 @@
  * NextAuth.js認証設定
  */
 
-import NextAuth from "next-auth"
+import NextAuth, { type NextAuthConfig } from "next-auth"
 import GitHubProvider from "next-auth/providers/github"
 import GoogleProvider from "next-auth/providers/google"
+import type { Account, Profile, User } from "next-auth"
+import type { AdapterUser } from "@auth/core/adapters"
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
-export const authOptions = {
+export const authOptions: NextAuthConfig = {
   providers: [
     GitHubProvider({
       clientId: process.env.GITHUB_ID || '',
@@ -19,7 +21,11 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account, profile }: { 
+      user: User | AdapterUser; 
+      account: Account | null; 
+      profile?: Profile 
+    }) {
       // ユーザー情報をSupabaseに保存
       if (user.email) {
         try {
@@ -44,13 +50,13 @@ export const authOptions = {
       }
       return true
     },
-    async session({ session, token }) {
+    async session({ session, token }: { session: any; token: any }) {
       if (session?.user && token?.sub) {
         session.user.id = token.sub
       }
       return session
     },
-    async jwt({ user, token }) {
+    async jwt({ user, token }: { user?: User; token: any }) {
       if (user) {
         token.sub = user.id
       }

@@ -1,12 +1,34 @@
 /**
  * Amazon Rekognition 画像解析機能
+ * 新しいAWS SDK v3を使用した統合実装
  */
 
 import { RekognitionClient, DetectLabelsCommand } from '@aws-sdk/client-rekognition';
 
+export interface DetectedIngredient {
+  name: string;
+  confidence: number;
+  category: 'vegetable' | 'fruit' | 'meat' | 'seafood' | 'dairy' | 'grain' | 'other';
+  japaneseName?: string;
+  boundingBox?: {
+    width: number;
+    height: number;
+    left: number;
+    top: number;
+  };
+}
+
+export interface ImageAnalysisResult {
+  ingredients: DetectedIngredient[];
+  imageUrl: string;
+  s3Key: string;
+  analyzedAt: Date;
+  confidence: number;
+}
+
 // Rekognitionクライアントの初期化
 const rekognitionClient = new RekognitionClient({
-  region: process.env.REKOGNITION_REGION || process.env.AWS_REGION!,
+  region: process.env.AWS_REGION || 'ap-northeast-1',
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
@@ -14,12 +36,13 @@ const rekognitionClient = new RekognitionClient({
 });
 
 // 信頼度の閾値
-const CONFIDENCE_THRESHOLD = 70; // 70%以上の信頼度
+const CONFIDENCE_THRESHOLD = 70;
 
 // 食材として認識するラベルのマッピング
 const FOOD_LABEL_MAPPING: Record<string, string> = {
+  // 野菜
   'Tomato': 'トマト',
-  'Onion': '玉ねぎ',
+  'Onion': '玉ねぎ', 
   'Carrot': 'にんじん',
   'Potato': 'じゃがいも',
   'Cucumber': 'きゅうり',
@@ -29,212 +52,167 @@ const FOOD_LABEL_MAPPING: Record<string, string> = {
   'Broccoli': 'ブロッコリー',
   'Pepper': 'ピーマン',
   'Eggplant': 'なす',
-  'Mushroom': 'きのこ',
-  'Chicken': '鶏肉',
+  'Zucchini': 'ズッキーニ',
+  
+  // 果物
+  'Apple': 'りんご',
+  'Banana': 'バナナ',
+  'Orange': 'オレンジ',
+  'Grape': 'ぶどう',
+  'Strawberry': 'いちご',
+  'Watermelon': 'スイカ',
+  'Peach': '桃',
+  'Lemon': 'レモン',
+  
+  // 肉類
   'Beef': '牛肉',
   'Pork': '豚肉',
+  'Chicken': '鶏肉',
+  'Lamb': 'ラム肉',
+  'Turkey': '七面鳥',
+  
+  // 魚介類
   'Fish': '魚',
-  'Egg': '卵',
+  'Salmon': 'サーモン',
+  'Tuna': 'まぐろ',
+  'Shrimp': 'えび',
+  'Crab': 'かに',
+  'Lobster': 'ロブスター',
+  
+  // 乳製品
   'Milk': '牛乳',
   'Cheese': 'チーズ',
+  'Butter': 'バター',
+  'Yogurt': 'ヨーグルト',
+  'Cream': 'クリーム',
+  
+  // 穀物
   'Rice': '米',
   'Bread': 'パン',
   'Pasta': 'パスタ',
+  'Noodle': '麺',
+  'Wheat': '小麦',
+  
+  // その他
+  'Egg': '卵',
   'Tofu': '豆腐',
-  'Food': '食材', // 汎用的な食材
-  'Vegetable': '野菜',
-  'Meat': '肉',
-  'Fruit': 'フルーツ',
+  'Mushroom': 'きのこ',
+  'Herb': 'ハーブ',
+  'Spice': 'スパイス',
 };
 
-export interface DetectedIngredient {
-  name: string;
-  confidence: number;
-  boundingBox?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+/**
+ * 画像から食材を検出
+ */
+export async function detectIngredients(imageBuffer: Buffer): Promise<DetectedIngredient[]> {
+  try {
+    const command = new DetectLabelsCommand({
+      Image: {
+        Bytes: imageBuffer,
+      },
+      MaxLabels: 20,
+      MinConfidence: CONFIDENCE_THRESHOLD,
+    });
+
+    const response = await rekognitionClient.send(command);
+    
+    if (!response.Labels) {
+      return [];
+    }
+
+    // 食材関連のラベルをフィルタリング・変換
+    const ingredients = response.Labels
+      .filter(label => isIngredientLabel(label.Name || ''))
+      .map(label => ({
+        name: label.Name || '',
+        confidence: label.Confidence || 0,
+        category: categorizeIngredient(label.Name || ''),
+        japaneseName: FOOD_LABEL_MAPPING[label.Name || ''] || translateToJapanese(label.Name || ''),
+        boundingBox: label.Instances?.[0]?.BoundingBox ? {
+          width: label.Instances[0].BoundingBox.Width || 0,
+          height: label.Instances[0].BoundingBox.Height || 0,
+          left: label.Instances[0].BoundingBox.Left || 0,
+          top: label.Instances[0].BoundingBox.Top || 0,
+        } : undefined,
+      }));
+
+    return ingredients;
+  } catch (error) {
+    console.error('Rekognition分析エラー:', error);
+    throw new Error('画像分析に失敗しました');
+  }
+}
+
+/**
+ * バッチ画像分析（複数画像の一括処理）
+ */
+export async function analyzeMultipleImages(
+  images: Array<{ buffer: Buffer; filename: string }>
+): Promise<Array<{ filename: string; ingredients: DetectedIngredient[]; error?: string }>> {
+  const results = await Promise.allSettled(
+    images.map(async (image) => ({
+      filename: image.filename,
+      ingredients: await detectIngredients(image.buffer),
+    }))
+  );
+  
+  return results.map((result, index) => 
+    result.status === 'fulfilled' 
+      ? result.value
+      : { 
+          filename: images[index].filename, 
+          ingredients: [], 
+          error: result.reason?.message || 'Unknown error' 
+        }
+  );
+}
+
+/**
+ * 食材関連のラベルかどうかを判定
+ */
+function isIngredientLabel(label: string): boolean {
+  const foodKeywords = [
+    'vegetable', 'fruit', 'meat', 'fish', 'seafood', 'poultry',
+    'beef', 'pork', 'chicken', 'lamb', 'shrimp', 'salmon',
+    'carrot', 'potato', 'onion', 'tomato', 'lettuce', 'cabbage',
+    'apple', 'banana', 'orange', 'grape', 'strawberry',
+    'rice', 'bread', 'pasta', 'noodle', 'cheese', 'milk',
+    'egg', 'butter', 'oil', 'sauce', 'spice', 'herb',
+    'food', 'ingredient', 'produce', 'grocery'
+  ];
+  
+  const lowerLabel = label.toLowerCase();
+  return foodKeywords.some(keyword => lowerLabel.includes(keyword)) ||
+         FOOD_LABEL_MAPPING.hasOwnProperty(label);
+}
+
+/**
+ * 食材をカテゴリ分類
+ */
+function categorizeIngredient(label: string): DetectedIngredient['category'] {
+  const lowerLabel = label.toLowerCase();
+  
+  const categories = {
+    vegetable: ['vegetable', 'carrot', 'potato', 'onion', 'tomato', 'lettuce', 'cabbage', 'broccoli', 'spinach', 'pepper', 'eggplant'],
+    fruit: ['fruit', 'apple', 'banana', 'orange', 'grape', 'strawberry', 'melon', 'peach', 'watermelon', 'lemon'],
+    meat: ['meat', 'beef', 'pork', 'chicken', 'lamb', 'poultry', 'turkey'],
+    seafood: ['fish', 'seafood', 'shrimp', 'salmon', 'tuna', 'crab', 'lobster'],
+    dairy: ['cheese', 'milk', 'butter', 'yogurt', 'cream'],
+    grain: ['rice', 'bread', 'pasta', 'noodle', 'wheat', 'flour'],
   };
-}
-
-export interface AnalysisResult {
-  ingredients: DetectedIngredient[];
-  confidence: number; // 全体の信頼度
-  processingTime: number;
-  rawLabels?: any[]; // デバッグ用の生データ
+  
+  for (const [category, keywords] of Object.entries(categories)) {
+    if (keywords.some(keyword => lowerLabel.includes(keyword))) {
+      return category as DetectedIngredient['category'];
+    }
+  }
+  
+  return 'other';
 }
 
 /**
- * S3の画像URLから食材を解析
+ * 英語の食材名を日本語に翻訳（フォールバック）
  */
-export async function analyzeImageWithRekognition(
-  s3Key: string,
-  includeRawData: boolean = false
-): Promise<AnalysisResult> {
-  const startTime = Date.now();
-  
-  try {
-    // Rekognition APIを呼び出し
-    const command = new DetectLabelsCommand({
-      Image: {
-        S3Object: {
-          Bucket: process.env.AWS_S3_BUCKET_NAME!,
-          Name: s3Key,
-        },
-      },
-      MaxLabels: 50,
-      MinConfidence: CONFIDENCE_THRESHOLD,
-    });
-    
-    const response = await rekognitionClient.send(command);
-    const labels = response.Labels || [];
-    
-    // 食材として認識されたラベルを抽出
-    const ingredients: DetectedIngredient[] = [];
-    const processedNames = new Set<string>(); // 重複を避ける
-    
-    for (const label of labels) {
-      if (!label.Name || !label.Confidence) continue;
-      
-      // 食材マッピングに存在するか確認
-      const japaneseName = FOOD_LABEL_MAPPING[label.Name];
-      if (japaneseName && !processedNames.has(japaneseName)) {
-        processedNames.add(japaneseName);
-        
-        const ingredient: DetectedIngredient = {
-          name: japaneseName,
-          confidence: label.Confidence / 100, // 0-1の範囲に正規化
-        };
-        
-        // バウンディングボックス情報があれば追加
-        if (label.Instances && label.Instances.length > 0) {
-          const instance = label.Instances[0];
-          if (instance.BoundingBox) {
-            ingredient.boundingBox = {
-              x: (instance.BoundingBox.Left || 0) * 100,
-              y: (instance.BoundingBox.Top || 0) * 100,
-              width: (instance.BoundingBox.Width || 0) * 100,
-              height: (instance.BoundingBox.Height || 0) * 100,
-            };
-          }
-        }
-        
-        ingredients.push(ingredient);
-      }
-      
-      // 親カテゴリーも確認（例：特定の野菜が検出されない場合の "Vegetable"）
-      if (label.Parents) {
-        for (const parent of label.Parents) {
-          const parentName = FOOD_LABEL_MAPPING[parent.Name || ''];
-          if (parentName && !processedNames.has(parentName)) {
-            processedNames.add(parentName);
-            ingredients.push({
-              name: parentName,
-              confidence: (label.Confidence / 100) * 0.8, // 親カテゴリーは少し信頼度を下げる
-            });
-          }
-        }
-      }
-    }
-    
-    // 信頼度で降順ソート
-    ingredients.sort((a, b) => b.confidence - a.confidence);
-    
-    // 全体の信頼度を計算（上位3つの平均）
-    const topConfidences = ingredients.slice(0, 3).map(i => i.confidence);
-    const overallConfidence = topConfidences.length > 0
-      ? topConfidences.reduce((sum, conf) => sum + conf, 0) / topConfidences.length
-      : 0;
-    
-    const processingTime = (Date.now() - startTime) / 1000; // 秒単位
-    
-    return {
-      ingredients,
-      confidence: overallConfidence,
-      processingTime,
-      ...(includeRawData && { rawLabels: labels }),
-    };
-  } catch (error) {
-    console.error('Rekognition解析エラー:', error);
-    throw new Error(`画像の解析に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
-}
-
-/**
- * Base64画像データから直接解析（開発用）
- */
-export async function analyzeImageFromBase64(
-  base64Data: string,
-  includeRawData: boolean = false
-): Promise<AnalysisResult> {
-  const startTime = Date.now();
-  
-  try {
-    // Base64データから "data:image/xxx;base64," プレフィックスを削除
-    const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
-    const imageBytes = Buffer.from(base64Image, 'base64');
-    
-    const command = new DetectLabelsCommand({
-      Image: {
-        Bytes: imageBytes,
-      },
-      MaxLabels: 50,
-      MinConfidence: CONFIDENCE_THRESHOLD,
-    });
-    
-    const response = await rekognitionClient.send(command);
-    const labels = response.Labels || [];
-    
-    // 以下、analyzeImageWithRekognitionと同じ処理
-    const ingredients: DetectedIngredient[] = [];
-    const processedNames = new Set<string>();
-    
-    for (const label of labels) {
-      if (!label.Name || !label.Confidence) continue;
-      
-      const japaneseName = FOOD_LABEL_MAPPING[label.Name];
-      if (japaneseName && !processedNames.has(japaneseName)) {
-        processedNames.add(japaneseName);
-        
-        const ingredient: DetectedIngredient = {
-          name: japaneseName,
-          confidence: label.Confidence / 100,
-        };
-        
-        if (label.Instances && label.Instances.length > 0) {
-          const instance = label.Instances[0];
-          if (instance.BoundingBox) {
-            ingredient.boundingBox = {
-              x: (instance.BoundingBox.Left || 0) * 100,
-              y: (instance.BoundingBox.Top || 0) * 100,
-              width: (instance.BoundingBox.Width || 0) * 100,
-              height: (instance.BoundingBox.Height || 0) * 100,
-            };
-          }
-        }
-        
-        ingredients.push(ingredient);
-      }
-    }
-    
-    ingredients.sort((a, b) => b.confidence - a.confidence);
-    
-    const topConfidences = ingredients.slice(0, 3).map(i => i.confidence);
-    const overallConfidence = topConfidences.length > 0
-      ? topConfidences.reduce((sum, conf) => sum + conf, 0) / topConfidences.length
-      : 0;
-    
-    const processingTime = (Date.now() - startTime) / 1000;
-    
-    return {
-      ingredients,
-      confidence: overallConfidence,
-      processingTime,
-      ...(includeRawData && { rawLabels: labels }),
-    };
-  } catch (error) {
-    console.error('Rekognition Base64解析エラー:', error);
-    throw new Error(`画像の解析に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+function translateToJapanese(englishName: string): string {
+  return FOOD_LABEL_MAPPING[englishName] || englishName;
 }
