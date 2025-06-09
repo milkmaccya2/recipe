@@ -9,15 +9,15 @@ import type { Account, Profile, User } from "next-auth"
 import type { AdapterUser } from "@auth/core/adapters"
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
-export const authOptions: NextAuthConfig = {
+const config: NextAuthConfig = {
   providers: [
     GitHubProvider({
-      clientId: process.env.GITHUB_ID || '',
-      clientSecret: process.env.GITHUB_SECRET || '',
+      clientId: process.env.GITHUB_ID!,
+      clientSecret: process.env.GITHUB_SECRET!,
     }),
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || '',
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
   ],
   callbacks: {
@@ -72,4 +72,4 @@ export const authOptions: NextAuthConfig = {
   },
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth(authOptions)
+export const { handlers, auth, signIn, signOut } = NextAuth(config)
