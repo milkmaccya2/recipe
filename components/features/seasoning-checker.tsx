@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import { useAtom } from 'jotai'
-import { Check, X, AlertCircle, ChefHat, Loader2 } from 'lucide-react'
+import { Check, X, AlertCircle, ChefHat, Loader2, Settings, Save } from 'lucide-react'
 import { seasoningsAtom, updateSeasoningAtom, availableSeasoningsAtom, type Seasoning } from '@/stores/ingredients'
 import { Recipe } from '@/lib/openai'
+import { useAuth } from '@/hooks/use-auth'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface SeasoningCheckerProps {
@@ -18,6 +20,10 @@ export function SeasoningChecker({ recipe, onAlternativesRequested }: SeasoningC
   const [, updateSeasoning] = useAtom(updateSeasoningAtom)
   const [isLoadingAlternatives, setIsLoadingAlternatives] = useState(false)
   const [alternativesError, setAlternativesError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [showAllSeasonings, setShowAllSeasonings] = useState(false)
+  
+  const { user, isAuthenticated } = useAuth()
 
   // レシピに必要な調味料（簡易的な抽出）
   const requiredSeasonings = extractRequiredSeasonings(recipe)
@@ -70,11 +76,66 @@ export function SeasoningChecker({ recipe, onAlternativesRequested }: SeasoningC
     }
   }
 
+  const handleSaveSeasoningPreferences = async () => {
+    if (!isAuthenticated) {
+      alert('調味料設定を保存するにはログインが必要です')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/user/seasonings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          seasonings: availableSeasonings.map(s => ({ name: s.name, isAvailable: true }))
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('調味料設定の保存に失敗しました')
+      }
+
+      alert('調味料設定を保存しました！')
+    } catch (error) {
+      console.error('Error saving seasonings:', error)
+      alert('調味料設定の保存に失敗しました')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
-      <div className="flex items-center space-x-2 mb-4">
-        <ChefHat className="w-5 h-5 text-orange-600" />
-        <h3 className="text-lg font-semibold text-gray-900">調味料チェック</h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-2">
+          <ChefHat className="w-5 h-5 text-orange-600" />
+          <h3 className="text-lg font-semibold text-gray-900">調味料チェック</h3>
+          {isAuthenticated && user && (
+            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+              {user.name}さんの設定
+            </span>
+          )}
+        </div>
+        
+        {isAuthenticated && (
+          <Button
+            onClick={handleSaveSeasoningPreferences}
+            disabled={isSaving}
+            size="sm"
+            variant="outline"
+            className="flex items-center space-x-1"
+          >
+            {isSaving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            <span>保存</span>
+          </Button>
+        )}
       </div>
 
       {/* 必要な調味料 */}
@@ -151,15 +212,27 @@ export function SeasoningChecker({ recipe, onAlternativesRequested }: SeasoningC
 
       {/* 調味料一覧 */}
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3">お持ちの調味料をチェック</h4>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-medium text-gray-700">お持ちの調味料をチェック</h4>
+          <Button
+            onClick={() => setShowAllSeasonings(!showAllSeasonings)}
+            variant="ghost"
+            size="sm"
+            className="flex items-center space-x-1"
+          >
+            <Settings className="w-4 h-4" />
+            <span>{showAllSeasonings ? '基本のみ' : 'すべて表示'}</span>
+          </Button>
+        </div>
+        
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {seasonings.map((seasoning) => (
+          {(showAllSeasonings ? seasonings : seasonings.slice(0, 12)).map((seasoning) => (
             <label
               key={seasoning.id}
               className={cn(
-                "flex items-center space-x-2 p-2 rounded-lg cursor-pointer transition-colors",
+                "flex items-center space-x-2 p-3 rounded-lg cursor-pointer transition-all",
                 seasoning.isAvailable
-                  ? "bg-green-50 border border-green-200 hover:bg-green-100"
+                  ? "bg-green-50 border border-green-200 hover:bg-green-100 shadow-sm"
                   : "bg-gray-50 border border-gray-200 hover:bg-gray-100"
               )}
             >
@@ -178,6 +251,22 @@ export function SeasoningChecker({ recipe, onAlternativesRequested }: SeasoningC
             </label>
           ))}
         </div>
+        
+        {!showAllSeasonings && seasonings.length > 12 && (
+          <div className="mt-3 text-center">
+            <span className="text-sm text-gray-500">
+              +{seasonings.length - 12}個の調味料
+            </span>
+          </div>
+        )}
+        
+        {!isAuthenticated && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-blue-700 text-sm">
+              💡 ログインすると調味料の設定を保存できます
+            </p>
+          </div>
+        )}
       </div>
 
       {/* 成功メッセージ */}

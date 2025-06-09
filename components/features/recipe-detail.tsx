@@ -1,28 +1,33 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Clock, Users, ChefHat, Heart, Star, ArrowLeft, CheckCircle } from 'lucide-react'
+import { Clock, Users, ChefHat, Heart, Star, ArrowLeft, CheckCircle, Bookmark, Share2 } from 'lucide-react'
 import { Recipe } from '@/lib/openai'
 import { useRecipeHistory } from '@/hooks/use-recipe-history'
+import { useAuth } from '@/hooks/use-auth'
+import { useFavorites } from '@/hooks/use-favorites'
 import { SeasoningChecker } from './seasoning-checker'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface RecipeDetailProps {
   recipe: Recipe
   onBack?: () => void
-  isFavorite?: boolean
-  onToggleFavorite?: (recipeId: string) => void
 }
 
 export function RecipeDetail({ 
   recipe, 
-  onBack, 
-  isFavorite = false, 
-  onToggleFavorite 
+  onBack
 }: RecipeDetailProps) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [alternativeRecipes, setAlternativeRecipes] = useState<Recipe[]>([])
+  const [showShareModal, setShowShareModal] = useState(false)
+  
+  const { user, isAuthenticated } = useAuth()
   const { addToHistory } = useRecipeHistory()
+  const { favorites, addToFavorites, removeFromFavorites } = useFavorites()
+  
+  const isFavorite = favorites.some(fav => fav.id === recipe.id)
 
   // レシピが表示されたら履歴に追加
   useEffect(() => {
@@ -45,8 +50,54 @@ export function RecipeDetail({
     setCompletedSteps(newCompleted)
   }
 
-  const handleFavoriteClick = () => {
-    onToggleFavorite?.(recipe.id)
+  const handleFavoriteClick = async () => {
+    if (!isAuthenticated) {
+      // 未認証の場合はサインインを促す
+      alert('お気に入りに追加するにはログインが必要です')
+      return
+    }
+
+    try {
+      if (isFavorite) {
+        await removeFromFavorites(recipe.id)
+      } else {
+        await addToFavorites(recipe)
+      }
+    } catch (error) {
+      console.error('お気に入り操作に失敗しました:', error)
+      alert('お気に入り操作に失敗しました')
+    }
+  }
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: recipe.title,
+          text: recipe.description,
+          url: window.location.href,
+        })
+      } catch (error) {
+        console.log('シェアがキャンセルされました')
+      }
+    } else {
+      setShowShareModal(true)
+    }
+  }
+
+  const handleSaveRecipe = async () => {
+    if (!isAuthenticated) {
+      alert('レシピを保存するにはログインが必要です')
+      return
+    }
+    
+    try {
+      await addToFavorites(recipe)
+      alert('レシピを保存しました！')
+    } catch (error) {
+      console.error('レシピ保存に失敗しました:', error)
+      alert('レシピ保存に失敗しました')
+    }
   }
 
   const getDifficultyColor = (difficulty: Recipe['difficulty']) => {
@@ -83,24 +134,35 @@ export function RecipeDetail({
 
         {/* メイン画像 */}
         <div className="relative h-64 md:h-80 bg-gray-100">
-          {recipe.imageUrl ? (
-            <img
-              src={recipe.imageUrl}
-              alt={recipe.title}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <ChefHat className="w-16 h-16 text-gray-400" />
-            </div>
-          )}
+          <img
+            src={recipe.image || '/placeholder-recipe.jpg'}
+            alt={recipe.title}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement
+              target.style.display = 'none'
+              target.nextElementSibling?.classList.remove('hidden')
+            }}
+          />
+          <div className="hidden w-full h-full flex items-center justify-center absolute inset-0 bg-gray-100">
+            <ChefHat className="w-16 h-16 text-gray-400" />
+          </div>
           
-          {/* お気に入りボタン */}
-          {onToggleFavorite && (
+          {/* アクションボタン */}
+          <div className="absolute top-4 right-4 flex space-x-2">
+            {/* シェアボタン */}
+            <button
+              onClick={handleShare}
+              className="p-3 bg-white/80 hover:bg-white rounded-full transition-colors"
+            >
+              <Share2 className="w-5 h-5 text-gray-600" />
+            </button>
+            
+            {/* お気に入りボタン */}
             <button
               onClick={handleFavoriteClick}
               className={cn(
-                "absolute top-4 right-4 p-3 rounded-full transition-colors",
+                "p-3 rounded-full transition-colors",
                 isFavorite 
                   ? "bg-red-500 text-white" 
                   : "bg-white/80 text-gray-600 hover:bg-white"
@@ -108,6 +170,15 @@ export function RecipeDetail({
             >
               <Heart className={cn("w-5 h-5", isFavorite && "fill-current")} />
             </button>
+          </div>
+          
+          {/* ユーザー情報表示 */}
+          {isAuthenticated && user && (
+            <div className="absolute bottom-4 left-4 bg-white/90 rounded-lg px-3 py-2">
+              <p className="text-sm text-gray-600">
+                {user.name}さんがお料理中
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -313,7 +384,77 @@ export function RecipeDetail({
             </div>
           </div>
         )}
+
+        {/* アクションボタン */}
+        <div className="border-t pt-6">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {!isFavorite && (
+              <Button
+                onClick={handleSaveRecipe}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white"
+                disabled={!isAuthenticated}
+              >
+                <Bookmark className="w-4 h-4 mr-2" />
+                レシピを保存
+              </Button>
+            )}
+            
+            <Button
+              onClick={handleShare}
+              variant="outline"
+              className="flex-1"
+            >
+              <Share2 className="w-4 h-4 mr-2" />
+              シェア
+            </Button>
+            
+            {onBack && (
+              <Button
+                onClick={onBack}
+                variant="outline"
+                className="sm:w-auto"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                戻る
+              </Button>
+            )}
+          </div>
+          
+          {!isAuthenticated && (
+            <p className="text-sm text-gray-500 mt-3 text-center">
+              ログインするとレシピの保存やお気に入り機能が使えます
+            </p>
+          )}
+        </div>
       </div>
+
+      {/* シェアモーダル */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4">レシピをシェア</h3>
+            <div className="space-y-3">
+              <Button
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href)
+                  alert('URLをコピーしました！')
+                  setShowShareModal(false)
+                }}
+                variant="outline"
+                className="w-full"
+              >
+                URLをコピー
+              </Button>
+              <Button
+                onClick={() => setShowShareModal(false)}
+                className="w-full"
+              >
+                閉じる
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
